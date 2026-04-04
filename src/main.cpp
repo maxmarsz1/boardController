@@ -57,12 +57,18 @@ class Board {
 
     boardState = new HoldState[rows * cols];
     clearBoard();
+    boardWelcome();
   }
 
   void lightHold(int row, int col, HoldState state) {
     int pixelId = (row * rows) + col;
     boardState[pixelId] = state;
     ws2812b.setPixelColor(pixelId, getHoldColor(state));
+  }
+
+  void lightHold(int coord, HoldState state){
+    boardState[coord] = state;
+    ws2812b.setPixelColor(coord, getHoldColor(state));
   }
 
   void lightBoard(std::string input) {
@@ -73,12 +79,12 @@ class Board {
     int row = 0;
     int col = 0;
     HoldState holdState;
-    int loopLength = input.size() > ROWS * COLS ? ROWS * COLS : input.size();
+    int loopLength = input.size() > rows * cols ? rows * cols : input.size();
     for (int i = 0; i < loopLength; i++) {
       inputInt = input[i] - '0';
       holdState = static_cast<HoldState>(inputInt);
-      col = i % ROWS;
-      if (i != 0 && i % COLS == 0) {
+      col = i % rows;
+      if (i != 0 && i % cols == 0) {
         row++;
       }
       lightHold(row, col, holdState);
@@ -104,6 +110,23 @@ class Board {
       boardState[i] = HoldState::none;
     }
   }
+
+  void boardWelcome(){
+    //todo
+    int maxIdx = rows*cols;
+    for(int i = 0; i < maxIdx; i++){
+      for(int j = i; j < i + 20; j++){
+        if(j < maxIdx){
+          HoldState newState = static_cast<HoldState>((int)boardState[j] + 1);
+          boardState[j] = newState;
+          lightHold(j, newState);
+        }
+      }
+      drawBoard();
+      delay(100);
+    }
+    debugBoard();
+  }
 };
 
 class MyServerCallback : public BLEServerCallbacks {
@@ -127,10 +150,7 @@ class BLEConnection {
     BLEConnection* pParent;
 
    public:
-    ControlCharacteristicCallback(BLEConnection* parent) : pParent(parent) {
-      Serial.print("BLEConnection address: ");
-      Serial.println((uint32_t)parent, HEX);
-    }
+    ControlCharacteristicCallback(BLEConnection* parent) : pParent(parent) {}
     void onWrite(BLECharacteristic* pControlChar) {
       std::string pControlChar_value_stdstr = pControlChar->getValue();
       String pControlChar_value_string =
@@ -142,14 +162,17 @@ class BLEConnection {
 
  public:
   BLEConnection() {};
-  void init(Board* newBoard) {
+
+  BLEAdvertising* init(Board* newBoard) {
     board = newBoard;
-    Serial.print("Board address: ");
-    Serial.println((uint32_t)board, HEX);
+    
     BLEDevice::init(DEVICE_NAME);
+
     BLEServer* pServer = BLEDevice::createServer();
     pServer->setCallbacks(new MyServerCallback());
+
     BLEService* pService = pServer->createService(SERVICE_UUID);
+
     BLECharacteristic* pLayoutCharacteristic = pService->createCharacteristic(
         LAYOUT_CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_READ);
     BLEDescriptor layoutDescriptor(BLEUUID((uint16_t)0x2902));
@@ -174,7 +197,12 @@ class BLEConnection {
     pAdvertising->setMinPreferred(
         0x06);  // functions that help with iPhone connections issue
     pAdvertising->setMinPreferred(0x12);
-    BLEDevice::startAdvertising();
+    // BLEAdvertisementData advertisementData;
+    // advertisementData.setFlags((0x01 << 1));
+    // pAdvertising->setAdvertisementData(advertisementData);
+    pAdvertising->start();
+
+    return pAdvertising;
   }
 
   Board* getBoard() { return board; }
@@ -182,20 +210,16 @@ class BLEConnection {
 
 Board* globalBoard = nullptr;
 BLEConnection globalBle;
+BLEAdvertising* globalAdvertising = nullptr;
 
 void setup() {
   Serial.begin(115200);
   globalBoard = new Board(ROWS, COLS);
-  globalBle.init(globalBoard);
-
-  // ble.setControlCallback(board.lightHold);
-  globalBoard->debugBoard();
-  globalBoard->lightHold(2, 2, HoldState::all);
-  globalBoard->lightHold(6, 6, HoldState::feet);
-  globalBoard->lightHold(7, 7, HoldState::start);
-  globalBoard->lightHold(1, 6, HoldState::end);
-  globalBoard->debugBoard();
-  globalBoard->drawBoard();
+  globalAdvertising = globalBle.init(globalBoard);
 }
 
-void loop() {}
+void loop() {
+  globalAdvertising->start();
+  Serial.print("Start advertising");
+  delay(30000);
+}
